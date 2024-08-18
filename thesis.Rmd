@@ -1,0 +1,101 @@
+---
+title: "Light logger"
+author: "Areej Hassan"
+course: "Thesis"
+---
+
+
+```{r load-packages, include=FALSE}
+#libraries to be loaded
+library(LightLogR)
+#these packages are needed for the examples as shown below.
+library(flextable)
+library(dplyr)
+library(ggplot2)
+```
+
+#### Load the dataset
+
+```{r}
+path <- "C:/Workspace/R/thesis/data"
+files <- list.files(path, full.names = TRUE)
+#show how many files are listes
+length(files)
+
+tz <- "Europe/Berlin"
+pattern <- "^(\\d{3})"
+data <- import$ActLumus(files, tz = tz, auto.id = pattern, print_n=33)
+
+```
+
+#### Extract only one day
+
+```{r}
+data$date <- as.Date(data$Datetime,tz=tz)
+data_Id101 <- data %>% filter(Id == 101 & date == "2024-07-11")
+data_Id101 %>% gg_day()
+
+```
+
+#### Time above threshold
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+duration_above_threshold(
+  Light.vector = data_Id101$MEDI,
+  Time.vector = data_Id101$Datetime,
+  threshold = 20
+)
+
+```
+
+#### Brightest 10 hours of the day
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+brightest101 = bright_dark_period(
+  Light.vector = data_Id101$MEDI,
+  Time.vector = data_Id101$Datetime,
+  as.df = TRUE
+)
+brightest101
+```
+
+#### Darkest 10 hours of the day
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+M10_wrong <- 
+bright_dark_period(
+  Light.vector = data_Id101$MEDI,
+  Time.vector = data_Id101$Datetime,
+  as.df = TRUE,
+  period = "darkest",
+  timespan = "10 hours"
+)
+M10_wrong
+Onset <- M10_wrong$darkest_10h_onset
+Offset <- M10_wrong$darkest_10h_offset
+
+data_Id101 %>% 
+  gg_day(aes_col = Datetime >= Onset & Datetime <= Offset) +
+  guides(color = "none")
+```
+
+#### Darkest 10 hours of the day with loop
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+M10 <- 
+bright_dark_period(
+  Light.vector = data_Id101$MEDI,
+  Time.vector = data_Id101$Datetime,
+  as.df = TRUE,
+  period = "darkest",
+  timespan = "10 hours",
+  loop = TRUE
+)
+M10
+Onset <- M10$darkest_10h_onset
+Offset <- M10$darkest_10h_offset
+
+data_Id101 %>% 
+  gg_day(aes_col = Datetime >= Onset | Datetime <= Offset) +
+  guides(color = "none")
+```
