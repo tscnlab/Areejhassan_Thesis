@@ -12,19 +12,35 @@ library(LightLogR)
 library(flextable)
 library(dplyr)
 library(ggplot2)
+library(lubridate)
+library(gtsummary)
 ```
 
 #### Load the dataset
 
 ```{r}
-path <- "C:/Workspace/R/thesis/data"
+path <- "D:/Thesis/101/files/"
 files <- list.files(path, full.names = TRUE)
 #show how many files are listes
 length(files)
 
 tz <- "Europe/Berlin"
 pattern <- "^(\\d{3})"
-data <- import$ActLumus(files, tz = tz, auto.id = pattern, print_n=33)
+data <- import$ActLumus(files, tz = tz, auto.id = pattern, dst_adjustment = TRUE, 
+                  auto.plot = FALSE, silent = TRUE)
+
+```
+
+#### Visualize the dataset
+
+```{r}
+data <- 
+  data %>% 
+  filter_Datetime_multiple(list(
+      list(only_Id = quote(Id == 101))
+    ), length = "1 year", length_from_start = FALSE)
+
+data %>% gg_overview()
 
 ```
 
@@ -98,4 +114,72 @@ Offset <- M10$darkest_10h_offset
 data_Id101 %>% 
   gg_day(aes_col = Datetime >= Onset | Datetime <= Offset) +
   guides(color = "none")
+```
+
+
+#### Interdaily Stability
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+IS_Id101 = data %>% 
+  summarize(
+    IS = interdaily_stability(
+      Light.vector = MEDI,
+      Datetime.vector = Datetime
+    )
+  )
+IS_Id101
+```
+
+#### TAT_250
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+TAT250_Id101 = data %>% 
+  summarize(
+    TAT_250 = duration_above_threshold(
+      Light.vector = MEDI,
+      Time.vector = Datetime,
+      threshold = 250
+    )
+  )
+TAT250_Id101
+```
+
+#### TAT_250
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#create a new column in the data set with the weekday
+data$wDay <- wday(data$Datetime, label = TRUE, week_start = 1)
+
+#group the data and calculate the metrics
+TAT_250_wday_Id101 <- 
+data %>% 
+  group_by(wDay, .add = TRUE) %>% 
+  summarize(
+    TAT_250 = duration_above_threshold(
+      Light.vector = MEDI,
+      Time.vector = Datetime,
+      threshold = 250
+    ), .groups = "drop_last"
+  )
+
+TAT_250_wday_Id101
+```
+
+#### metric_statistics
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#styling formula for time
+style_time <- function(x, format = "%H:%M"){
+  x %>% as.numeric() %>%  hms::as_hms() %>% as.POSIXlt() %>% format(format)
+}
+
+#Table output
+TAT_250_wday_Id101 %>% 
+  tbl_summary(
+    by = Id,
+    include = -wDay,
+    statistic = list(all_continuous() ~ "{mean} ({sd})"),
+    digits = list(TAT_250 ~ style_time),
+    label = list(TAT_250 = "Time above 250 lx mel EDI")
+              )
 ```
