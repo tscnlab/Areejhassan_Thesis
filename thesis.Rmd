@@ -19,7 +19,7 @@ library(gtsummary)
 #### Load the dataset
 
 ```{r}
-path <- "D:/Thesis/101/files/"
+path <- "D:/Thesis/106/all_files/"
 files <- list.files(path, full.names = TRUE)
 #show how many files are listes
 length(files)
@@ -27,31 +27,45 @@ length(files)
 tz <- "Europe/Berlin"
 pattern <- "^(\\d{3})"
 data <- import$ActLumus(files, tz = tz, auto.id = pattern, dst_adjustment = TRUE, 
-                  auto.plot = FALSE, silent = TRUE)
+                  auto.plot = TRUE, silent = TRUE)
 
 ```
 
 #### Visualize the dataset
 
 ```{r}
-data <- 
-  data %>% 
+data <-
+  data %>%
   filter_Datetime_multiple(list(
-      list(only_Id = quote(Id == 101))
+      list(only_Id = quote(Id == 106))
     ), length = "1 year", length_from_start = FALSE)
 
 data %>% gg_overview()
 
 ```
 
+#### fill gap
+
+```{r}
+data %>% gap_finder()
+data %>% count_difftime()
+data1 <- data %>% aggregate_Datetime(unit = "60 sec")
+data1 %>% gap_finder()
+data1 %>% count_difftime()
+
+```
+
 #### Extract only one day
 
 ```{r}
-data$date <- as.Date(data$Datetime,tz=tz)
-data_Id101 <- data %>% filter(Id == 101 & date == "2024-07-11")
+data1$date <- as.Date(data1$Datetime,tz=tz)
+data1$month <- month(data1$date)
+data_Id101 <- data1 %>% filter(Id == 106 & date == "2024-07-11")
 data_Id101 %>% gg_day()
 
 ```
+
+
 
 #### Time above threshold
 
@@ -59,10 +73,26 @@ data_Id101 %>% gg_day()
 duration_above_threshold(
   Light.vector = data_Id101$MEDI,
   Time.vector = data_Id101$Datetime,
-  threshold = 20
+  threshold = 250,
+  epoch = "dominant.epoch",
+  na.rm = FALSE
 )
 
 ```
+
+#### Time above threshold for month
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+for (x in unique(data1$month)) {
+  data_month = data1 %>% filter(month == x) %>%
+  dplyr::reframe(duration_above_threshold(MEDI, Datetime, threshold = 250, as.df = TRUE))
+  
+  print(paste("time above threshold for month", x))
+  print(data_month)
+}
+
+```
+
 
 #### Brightest 10 hours of the day
 
@@ -70,9 +100,17 @@ duration_above_threshold(
 brightest101 = bright_dark_period(
   Light.vector = data_Id101$MEDI,
   Time.vector = data_Id101$Datetime,
-  as.df = TRUE
+  as.df = TRUE,
+  timespan = "10 hours",
+  epoch = "dominant.epoch"
 )
 brightest101
+Onset <- brightest101$brightest_10h_onset
+Offset <- brightest101$brightest_10h_offset
+
+data_Id101 %>% 
+  gg_day(aes_col = Datetime >= Onset & Datetime <= Offset) +
+  guides(color = "none")
 ```
 
 #### Darkest 10 hours of the day
@@ -84,7 +122,8 @@ bright_dark_period(
   Time.vector = data_Id101$Datetime,
   as.df = TRUE,
   period = "darkest",
-  timespan = "10 hours"
+  timespan = "10 hours",
+  epoch = "dominant.epoch"
 )
 M10_wrong
 Onset <- M10_wrong$darkest_10h_onset
@@ -117,23 +156,176 @@ data_Id101 %>%
 ```
 
 
+#### barroso lighting metrics
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+barroso_lighting_metrics <- data_Id101 %>%
+  dplyr::reframe(barroso_lighting_metrics(MEDI, Datetime, as.df = TRUE))
+barroso_lighting_metrics
+
+```
+
+#### frequency crossing
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+freq_crossing <- data_Id101 %>%
+  dplyr::reframe(frequency_crossing_threshold(MEDI, threshold = 250, as.df = TRUE))
+freq_crossing
+
+```
+
+#### frequency crossing month
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+for (x in unique(data1$month)) {
+  freq_cross_month = data1 %>% filter(month == x) %>%
+  dplyr::reframe(frequency_crossing_threshold(MEDI, threshold = 250, as.df = TRUE))
+  
+  print(paste("Frequency of crossing lx 250 in month", x))
+  print(freq_cross_month)
+}
+
+```
+
+
+#### interdaily variability
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+interdaily_var <- data1 %>%
+  dplyr::reframe(intradaily_variability(MEDI, Datetime, as.df = TRUE))
+interdaily_var
+
+```
+
+#### interdaily variability per month
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+for (x in unique(data1$month)) {
+  interdaily_var_month = data1 %>% filter(month == x) %>%
+  dplyr::reframe(intradaily_variability(MEDI, Datetime, as.df = TRUE))
+  
+  print(paste("interdaily variability in month", x))
+  print(interdaily_var_month)
+}
+
+```
+
+#### Non-visual circadian response
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+nvRC <- data_Id101 %>%
+  dplyr::mutate(
+    nvRC = nvRC(MEDI, LIGHT, Datetime)
+  )
+data_Id101 %>% gg_day()
+plot(nvRC$Datetime,log(nvRC$MEDI)/max(log(nvRC$MEDI)))
+points(nvRC$Datetime, nvRC$nvRC, col='green', pch=12)
+
+```
+
+
+#### Period above threshold
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+per_above_thr <- 
+data_Id101 %>%
+  dplyr::reframe("Period <250lx" = period_above_threshold(MEDI, Datetime, "above", threshold = 250))
+per_above_thr
+```
+
+
+#### Period above threshold per month
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+for (x in unique(data1$month)) {
+  per_above_thr_month = data1 %>% filter(month == x) %>%
+  dplyr::reframe(period_above_threshold(MEDI, Datetime, "above", threshold = 250))
+  
+  print(paste("Period above threshold per month", x))
+  print(per_above_thr_month)
+}
+
+```
+
+#### Pulses above threshold
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+pul_above_thr <- 
+data_Id101 %>%
+  dplyr::reframe(pulses_above_threshold(MEDI, Datetime, threshold = 250, as.df = TRUE))
+pul_above_thr
+```
+
+
+#### Pulses above threshold per month
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+for (x in unique(data1$month)) {
+  pulse_above_thr_month = data1 %>% filter(month == x) %>%
+  dplyr::reframe(pulses_above_threshold(MEDI, Datetime, threshold = 250, as.df = TRUE))
+  
+  print(paste("Pulses above threshold per month", x))
+  print(pulse_above_thr_month)
+}
+```
+
+#### disparity index
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+data_disparity_idex = data1 %>% 
+    summarize(
+    DI = disparity_index(
+      MEDI
+    )
+  )
+data_disparity_idex
+```
+
+
+#### disparity index per month
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+for (x in unique(data1$month)) {
+  data_disparity_idex_month = data1 %>% filter(month == x) %>%
+  dplyr::reframe(disparity_index(
+      MEDI
+    ))
+  
+  print(paste("Disparity index per month", x))
+  print(data_disparity_idex_month)
+}
+```
+
+#### exponential moving average
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+data_EMA = data_Id101 %>% dplyr::mutate(MEDI.EMA = exponential_moving_average(MEDI, Datetime, decay = "10
+                                                                              min"))
+#data_EMA
+data_EMA %>%
+  ggplot2::ggplot(ggplot2::aes(x = Datetime)) +
+  ggplot2::geom_line(ggplot2::aes(y = MEDI), colour = "black") +
+  ggplot2::geom_line(ggplot2::aes(y = MEDI.EMA), colour = "red")
+```
+
 #### Interdaily Stability
 
 ```{r echo=TRUE, message=FALSE, warning=FALSE}
-IS_Id101 = data %>% 
-  summarize(
-    IS = interdaily_stability(
-      Light.vector = MEDI,
-      Datetime.vector = Datetime
-    )
-  )
-IS_Id101
+for (x in unique(data1$month)) {
+  IS_monthly = data1 %>% filter(month == x) %>%
+  dplyr::reframe(interdaily_stability(MEDI, Datetime))
+  
+  print(paste("Pulses above threshold per month", x))
+  print(IS_monthly)
+}
+
 ```
+
 
 #### TAT_250
 
 ```{r echo=TRUE, message=FALSE, warning=FALSE}
-TAT250_Id101 = data %>% 
+TAT250_Id101 = data_Id101 %>% 
   summarize(
     TAT_250 = duration_above_threshold(
       Light.vector = MEDI,
@@ -142,6 +334,52 @@ TAT250_Id101 = data %>%
     )
   )
 TAT250_Id101
+```
+
+#### TAT_250 per month
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+for (x in unique(data1$month)) {
+  TAT250_month = data1 %>% filter(month == x) %>%
+  dplyr::reframe(duration_above_threshold(
+      Light.vector = MEDI,
+      Time.vector = Datetime,
+      threshold = 250
+    ))
+  
+  print(paste("Disparity index per month", x))
+  print(TAT250_month)
+}
+```
+
+#### Threshold for given duration
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+TAT250_inv = data_Id101 %>% 
+  dplyr::reframe(
+                threshold_for_duration(MEDI, Datetime, duration = "10260 sec"))
+TAT250_inv
+```
+
+
+#### Timing above threshold
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+time_abv_thr = data_Id101 %>%
+  dplyr::reframe(timing_above_threshold(MEDI, Datetime, "above", 250, as.df = TRUE))
+time_abv_thr
+```
+
+#### Timing above threshold per month
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+for (x in unique(data1$month)) {
+  time_abv_thr_month = data1 %>% filter(month == x) %>%
+  dplyr::reframe(timing_above_threshold(MEDI, Datetime, "above", 250, as.df = TRUE))
+  
+  print(paste("Timing above threshold per month", x))
+  print(time_abv_thr_month)
+}
 ```
 
 #### TAT_250
@@ -163,23 +401,4 @@ data %>%
   )
 
 TAT_250_wday_Id101
-```
-
-#### metric_statistics
-
-```{r echo=TRUE, message=FALSE, warning=FALSE}
-#styling formula for time
-style_time <- function(x, format = "%H:%M"){
-  x %>% as.numeric() %>%  hms::as_hms() %>% as.POSIXlt() %>% format(format)
-}
-
-#Table output
-TAT_250_wday_Id101 %>% 
-  tbl_summary(
-    by = Id,
-    include = -wDay,
-    statistic = list(all_continuous() ~ "{mean} ({sd})"),
-    digits = list(TAT_250 ~ style_time),
-    label = list(TAT_250 = "Time above 250 lx mel EDI")
-              )
 ```
