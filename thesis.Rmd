@@ -19,57 +19,41 @@ library(gtsummary)
 #### Load the dataset
 
 ```{r}
-path <- "D:/Thesis/106/all_files/"
+path <- "D:/files/set1/"
 files <- list.files(path, full.names = TRUE)
 #show how many files are listes
 length(files)
 
 tz <- "Europe/Berlin"
 pattern <- "^(\\d{3})"
-data <- import$ActLumus(files, tz = tz, auto.id = pattern, dst_adjustment = TRUE, 
-                  auto.plot = TRUE, silent = TRUE, remove_duplicates = TRUE)
+data <- import$ActLumus(files, tz = tz, dst_adjustment = TRUE, auto.plot = FALSE, auto.id = pattern, remove_duplicates = TRUE)
 
 ```
 
 #### Visualize the dataset
 
 ```{r}
-# data <-
-#   data %>%
-#   filter_Datetime_multiple(list(
-#       list(only_Id = quote(Id == 106))
-#     ), length = "1 year", length_from_start = FALSE)
-
-data %>% gg_overview()
+#create a new object with the erroneous data removed
+data2 <- data %>% filter_Date(start = "2024-01-01")
+data2 %>% gg_overview()
 
 ```
 
 #### fill gap
 
 ```{r}
-#data %>% gap_finder()
-#data %>% count_difftime()
-# data1 <- data %>% aggregate_Datetime(unit = "60 sec")
-# data1 %>% gap_finder()
-# data1 %>% count_difftime()
+#looking at the various measurement intervals. Most of the data is in 30 second intervals, but lots have 60s differences. Which is the base interval? Could the various files have started 30 seconds off to one another?
+data2 %>% count_difftime()
+data2 %>% dominant_epoch()
 
+#because we would have many gaps with 30s intervals, we will aggregate the data to 1 minute intervals
+data1 <- data2 %>% aggregate_Datetime(unit = "1 min")
 
-gap.data <- 
-      data %>% 
-      gap_finder(
-        Datetime.colname = Datetime,
-        gap.data = TRUE, silent = TRUE, epoch = "60 sec") %>% 
-      dplyr::group_by(gap.id, .add = TRUE) %>% 
-      dplyr::filter(dplyr::n() > 1)
-    
-    there_are_gaps <- nrow(gap.data) > 0
-    
-    if(there_are_gaps) {
-      gap2 <- 
-        gap.data %>% 
-        dplyr::summarize(
-          start = min(Datetime), end = max(Datetime))
-    }
+#we can see that this leaves us with "only" 10 gaps, as that is the highest Id number
+data1 %>% gap_finder(gap.data = TRUE) %>% tail()
+
+#looking at the overview for the unaggregated (data2) and aggregated data (data3), we see no discernible difference in the overview. Note that gg_overview does not plot gaps that interrupt the time sequence for only one instant.
+data1 %>% gg_overview()
 
 ```
 
@@ -131,24 +115,6 @@ data_Id101 %>%
   guides(color = "none")
 ```
 
-
-#### Brightest 10hour per month
-
-```{r echo=TRUE, message=FALSE, warning=FALSE}
-for (x in unique(data1$month)) {
-  brightest_month = data1 %>% filter(month == x) %>%
-  dplyr::reframe(bright_dark_period(  Light.vector = MEDI,
-  Time.vector = Datetime,
-  as.df = TRUE,
-  timespan = "10 hours",
-  epoch = "dominant.epoch"))
-  
-  print(paste("Brightest 10h for month", x))
-  print(brightest_month)
-}
-
-```
-
 #### Darkest 10 hours of the day
 
 ```{r echo=TRUE, message=FALSE, warning=FALSE}
@@ -189,26 +155,6 @@ Offset <- M10$darkest_10h_offset
 data_Id101 %>% 
   gg_day(aes_col = Datetime >= Onset | Datetime <= Offset) +
   guides(color = "none")
-```
-
-
-#### Darkest 10hour per month
-
-```{r echo=TRUE, message=FALSE, warning=FALSE}
-for (x in unique(data1$month)) {
-  darkest_month = data1 %>% filter(month == x) %>%
-  dplyr::reframe(bright_dark_period(  Light.vector = MEDI,
-  Time.vector = Datetime,
-  period = "darkest",
-  as.df = TRUE,
-  timespan = "10 hours",
-  epoch = "dominant.epoch",
-  loop = TRUE))
-  
-  print(paste("Darkest 10h for month", x))
-  print(darkest_month)
-}
-
 ```
 
 
@@ -371,7 +317,7 @@ for (x in unique(data1$month)) {
   IS_monthly = data1 %>% filter(month == x) %>%
   dplyr::reframe(interdaily_stability(MEDI, Datetime))
   
-  print(paste("Interdaily stability per month", x))
+  print(paste("Pulses above threshold per month", x))
   print(IS_monthly)
 }
 
@@ -403,7 +349,7 @@ for (x in unique(data1$month)) {
       threshold = 250
     ))
   
-  print(paste("Duration above threshold per month", x))
+  print(paste("Disparity index per month", x))
   print(TAT250_month)
 }
 ```
@@ -436,4 +382,25 @@ for (x in unique(data1$month)) {
   print(paste("Timing above threshold per month", x))
   print(time_abv_thr_month)
 }
+```
+
+#### TAT_250
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#create a new column in the data set with the weekday
+data$wDay <- wday(data$Datetime, label = TRUE, week_start = 1)
+
+#group the data and calculate the metrics
+TAT_250_wday_Id101 <- 
+data %>% 
+  group_by(wDay, .add = TRUE) %>% 
+  summarize(
+    TAT_250 = duration_above_threshold(
+      Light.vector = MEDI,
+      Time.vector = Datetime,
+      threshold = 250
+    ), .groups = "drop_last"
+  )
+
+TAT_250_wday_Id101
 ```

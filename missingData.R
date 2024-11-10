@@ -14,14 +14,16 @@ library(clipr)
 get_fileName_Date <- function(files){
   file_date <- c()
   part_id <- c()
+  log_id <- c()
   for (file in files){
     file_name <- basename(file)
     temp = unlist(strsplit(file_name,"_"))
     file_date <- c(file_date, substr(tail(temp, n=1), 1, 8))
     part_id <- c(part_id, temp[1])
+    log_id <- c(log_id, temp[3])
   }
-  df <- data.frame(part_id, file_date, files)
-  colnames(df) <- c("id","date", "file")
+  df <- data.frame(part_id, log_id, file_date, files)
+  colnames(df) <- c("id","device_id", "date", "file")
   return(df)
 }
 
@@ -29,12 +31,16 @@ get_Data <- function(files){
   files$date <- as.Date(files$date, format = "%Y%m%d")
   files <- files[order(files$date),]
   data <- read.csv(files$file[1], skip = 32, sep = ';')
-  files_2 = files$file[2:nrow(files)]
-  for (file in files_2){
-    data <- rbind(data, read.csv(file, skip = 32, sep = ';'))
+  data$device_id <- files$device_id[1]
+  files_2 = files[2:nrow(files),]
+  for(i in 1:nrow(files_2)){
+    file <- files_2[i,]
+    temp_data <- read.csv(file$file, skip = 32, sep = ';')
+    temp_data$device_id <- file$device_id
+    data <- rbind(data, temp_data)
   }
   
-  data <- data[!duplicated(data), ]
+  data <- data[!duplicated(data[,-34]), ]
   return(data)
 }
 
@@ -43,6 +49,8 @@ find_missing_time <- function(data, participant_id){
   
   start_time <- c()
   end_time <- c()
+  start_deviceId <- c()
+  end_deviceId <- c()
   reason <- c()
   id <- c()
   duration <- c()
@@ -60,7 +68,9 @@ find_missing_time <- function(data, participant_id){
     if(con_missingData){
       id <- c(id, participant_id)
       start_time <- c(start_time, data$DATE.TIME[i])
+      start_deviceId <- c(start_deviceId, data$device_id[i])
       end_time <- c(end_time, data$DATE.TIME[i + 1])
+      end_deviceId <- c(end_deviceId, data$device_id[i + 1])
       reason <- c(reason, "missing data")
       duration <- c(duration, capture.output(time_vec[i+1]- time_vec[i]))
       time_diff = as.numeric(time_vec[i+1]- time_vec[i], units = "secs")
@@ -74,12 +84,14 @@ find_missing_time <- function(data, participant_id){
     else if(con_falseDate){
       id <- c(id, participant_id)
       start_time <- c(start_time, data$DATE.TIME[i])
+      start_deviceId <- c(start_deviceId, data$device_id[i])
       duration_start <- time_vec[i]
       while(year(time_vec[i + 1]) != 2024 & i < length(time_vec))
       {
         i<-i+1
       }
       end_time <- c(end_time, data$DATE.TIME[i + 1])
+      end_deviceId <- c(end_deviceId, data$device_id[i + 1])
       reason <- c(reason, "false date 2000")
       duration <- c(duration, capture.output(time_vec[i+1]- duration_start))
       time_diff = as.numeric(time_vec[i+1]- duration_start, units = "secs")
@@ -92,6 +104,7 @@ find_missing_time <- function(data, participant_id){
     else{
       id <- c(id, participant_id)
       start_time <- c(start_time, data$DATE.TIME[i])
+      start_deviceId <- c(start_deviceId, data$device_id[i])
       duration_start <- time_vec[i]
       while((!con_falseDate) & (!con_missingData) & i < length(time_vec)){
         i<-i+1
@@ -100,6 +113,7 @@ find_missing_time <- function(data, participant_id){
         con_falseDate = time_diff < 0 & year(time_vec[i + 1]) != 2024
       }
       end_time <- c(end_time, data$DATE.TIME[i])
+      end_deviceId <- c(end_deviceId, data$device_id[i])
       reason <- c(reason, "data present")
       time_diff = as.numeric(time_vec[i]- duration_start, units = "secs")
       duration <- c(duration, capture.output(time_vec[i]- duration_start))
@@ -110,24 +124,24 @@ find_missing_time <- function(data, participant_id){
     }
   }
   
-  missing_time <- data.frame(id, start_time, end_time, reason, duration, dur_days, dur_hours, dur_minutes)
+  missing_time <- data.frame(id, start_time, end_time, end_deviceId, reason, duration, dur_days, dur_hours, dur_minutes)
   return(missing_time)
 }
 
 
-path <- "D:/Thesis/all_files/"
+path <- "D:/all_files/"
 files <- list.files(path, full.names = TRUE)
-
 fileName_date <- get_fileName_Date(files)
 unique_id <- sort(unique(fileName_date$id))
 
 missing_data <- c()
+
 for(id in unique_id)
 {
   data <- get_Data(fileName_date[fileName_date$id == id,])
   missing_data <- rbind(missing_data, find_missing_time(data, id))
 }
-colnames(missing_data) <- c("id","start_time", "end_time", "missing_data", "duration", "duration_days", "duration_hours", "duration_minutes")
+colnames(missing_data) <- c("id","start_time", "end_time", "deviceId", "missing_data", "duration", "duration_days", "duration_hours", "duration_minutes")
 missing_data$duration <- gsub('Time difference of','',missing_data$duration)
 missing_data$duration[is.na(missing_data$end_time)] <- NA
 write_clip(missing_data)
