@@ -193,6 +193,11 @@ ggsave("missing_data.png", bg = "white")
 
 
 missing <- missing_data
+missing_data[missing_data$missing_data == "false date 2000",]$missing_data <- "missing data"
+
+
+
+
 missing_data <- missing_data %>%
   filter(complete.cases(.))
 missing_data$start_time <- dmy_hms(missing_data$start_time)
@@ -219,13 +224,22 @@ missing_data_percentage <- missing_months_data %>%
   ungroup()
 
 
-ggplot(missing_data_percentage, aes(x = factor(month), y = percentage, fill = missing_data)) +
-  geom_bar(stat = "identity", position = "stack") +
-  facet_wrap(~ id, scales = "free", strip.position = "top") +
-  labs(title = "Percentage of Missing Data by ID and Month",
-       x = "Month", y = "Percentage") +
-  theme_minimal() +
-  scale_fill_brewer(palette = "Set3") +  # Optional: change color palette
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        strip.text = element_text(size = 10))
+# Plot the stacked bar chart
+ggplot(missing_data_percentage, aes(x = month(month, label = TRUE, abbr = TRUE), y = percentage, fill = missing_data)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = 50, linetype = "dashed", color = "black") +  # Add a dashed line at 50%
+  facet_wrap(~ id) +  # Facet by ID
+  labs(
+    title = "Percentage of Missing and Non-Missing light data by Month and ID",
+    x = "Month",
+    y = "Percentage (%)"
+  ) +
+  scale_fill_manual(
+    values = c("missing data" = "#E57373", "data present" = "#81C784"),  # Shades of red and green
+                labels = c("missing data" = "missing", "data present" = "non missing")) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5)
+      )
+
 ggsave("percetage_plot.png", bg = "white")
