@@ -10,6 +10,7 @@ library(clipr)
 library(ggplot2)
 library(tidyr)
 library(corrplot)
+library(reshape2)
 
 
 
@@ -38,11 +39,12 @@ get_Data <- function(files){
   files_2 = files[2:nrow(files),]
   for(i in 1:nrow(files_2)){
     file <- files_2[i,]
+    print(file$file)
     temp_data <- read.csv(file$file, skip = 32, sep = ';')
     temp_data$device_id <- file$device_id
     data <- rbind(data, temp_data)
   }
-  
+
   data <- data[!duplicated(data[,-34]), ]
   return(data)
 }
@@ -63,12 +65,12 @@ find_missing_time <- function(data, participant_id){
   dur_minutes <- c()
   i = 1
   valid_date = 1
-  
+
   while(i < length(time_vec) - 1) {
     time_diff = as.numeric(difftime(time_vec[i+1], time_vec[i], units = "mins"))
     print(i)
-    con_missingData = time_diff > 60 & year(time_vec[i+1]) == 2024 & year(time_vec[i]) == 2024
-    con_falseDate = year(time_vec[i + 1]) != 2024
+    con_missingData <- time_diff > 60 & (year(time_vec[i + 1]) %in% c(2024, 2025)) & (year(time_vec[i]) %in% c(2024, 2025))
+    con_falseDate = !(year(time_vec[i + 1]) %in% c(2024, 2025))
     con_inactivity = data$PIM[i] <= 0
     if(con_missingData){
       #data$reason[i] <- "missing"
@@ -87,7 +89,7 @@ find_missing_time <- function(data, participant_id){
         dur_hours <- c(dur_hours, floor((time_diff %% (24 * 3600)) / 3600))
         dur_minutes <- c(dur_minutes, floor(((time_diff %% (24 * 3600)) / 3600 - res_hrs) * 60))
       }
-      
+
       i <- i+1
     }
     else if(con_falseDate){
@@ -98,7 +100,7 @@ find_missing_time <- function(data, participant_id){
         start_deviceId <- c(start_deviceId, data$device_id[i])
         duration_start <- time_vec[i]
         #data$reason[i] <- "false"
-        while(year(time_vec[i + 1]) != 2024 & i < length(time_vec))
+        while(!(year(time_vec[i + 1]) %in% c(2024, 2025)) & i < length(time_vec))
         {
           i<-i+1
           #data$reason[i] <- "false"
@@ -117,9 +119,9 @@ find_missing_time <- function(data, participant_id){
       }
       else{
         id <- c(id, participant_id)
-        start_time <- NA
+        start_time <- c(start_time, NA)
         start_deviceId <- c(start_deviceId, data$device_id[i])
-        while(year(time_vec[i]) != 2024 & i < length(time_vec))
+        while(!(year(time_vec[i]) %in% c(2024, 2025)) & i < length(time_vec))
         {
           i<-i+1
         }
@@ -144,8 +146,8 @@ find_missing_time <- function(data, participant_id){
           i<-i+1
           data$reason[i] <- "present"
           time_diff = as.numeric(difftime(time_vec[i+1], time_vec[i], units = "mins"))
-          con_missingData = time_diff > 60 & year(time_vec[i+1]) == 2024 & year(time_vec[i]) == 2024
-          con_falseDate = time_diff < 0 & year(time_vec[i + 1]) != 2024
+          con_missingData <- time_diff > 60 & (year(time_vec[i + 1]) %in% c(2024, 2025)) & (year(time_vec[i]) %in% c(2024, 2025))
+          con_falseDate = !(year(time_vec[i + 1]) %in% c(2024, 2025))
           con_inactivity = data$PIM[i] <= 0
         }
         end_time <- c(end_time, data$DATE.TIME[i])
@@ -169,8 +171,8 @@ find_missing_time <- function(data, participant_id){
           i <- i + 1
           count <- count + 1
           time_diff = as.numeric(difftime(time_vec[i+1], time_vec[i], units = "mins"))
-          con_missingData = time_diff > 60 & year(time_vec[i+1]) == 2024 & year(time_vec[i]) == 2024
-          con_falseDate = time_diff < 0 & year(time_vec[i + 1]) != 2024
+          con_missingData <- time_diff > 60 & (year(time_vec[i + 1]) %in% c(2024, 2025)) & (year(time_vec[i]) %in% c(2024, 2025))
+          con_falseDate = !(year(time_vec[i + 1]) %in% c(2024, 2025))
           con_inactivity = data$PIM[i] <= 0
         }
         if(count > 240)
@@ -192,6 +194,7 @@ find_missing_time <- function(data, participant_id){
         else{
           data$reason[start_index:i] <- "present"
           start_time <- c(start_time, start)
+          #print(paste("start time is:", start_time))
           end_time <- c(end_time, data$DATE.TIME[i])
           id <- c(id, participant_id)
           end_deviceId <- c(end_deviceId, data$device_id[i])
@@ -206,7 +209,7 @@ find_missing_time <- function(data, participant_id){
       }
     }
   }
-  
+
   missing_time <- data.frame(id, start_time, end_time, end_deviceId, reason, duration, dur_days, dur_hours, dur_minutes)
   return(list(missing_time = missing_time, data = data))
   #return(missing_time)
@@ -233,10 +236,10 @@ generate_missing_months <- function(missing) {
   return(missing_months)
 }
 
-path <- "F:/all_files/"
+path <- "F:/all_files_2025/"
 files <- list.files(path, full.names = TRUE)
 fileName_date <- get_fileName_Date(files)
-unique_id <- sort(unique(fileName_date$id))
+unique_id <- 112#sort(unique(fileName_date$id))
 
 missing_data <- c()
 inactive_data <- c()
@@ -258,68 +261,96 @@ missing_data$duration[is.na(missing_data$end_time)] <- NA
 write_clip(missing_data)
 
 x11()
-ggplot(na.omit(missing_data)) + geom_segment(aes(x=dmy_hms(start_time), y=id, xend=dmy_hms(end_time), yend=id, color = missing_data, linetype = missing_data, size = missing_data)) + 
+ggplot(na.omit(missing_data)) + geom_segment(aes(x=dmy_hms(start_time), y=id, xend=dmy_hms(end_time), yend=id, color = missing_data, linetype = missing_data, size = missing_data)) +
   scale_color_manual(values = c("missing data" = "#E57373", "false date 2000" = "#f7d6d6", "data present" = "#81C784", "non-wear" = "#eef7ee"))+
   scale_size_manual(values = c("missing data" = 2.5, "false date 2000" = 2.5, "data present" = 3.5, "non-wear" = 2.5)) +  # Customize line width
-  scale_linetype_manual(values = c("missing data" = "solid", "false date 2000" = "solid", "data present" = "solid", "non-wear" = "solid")) + 
-  theme_minimal()
+  scale_linetype_manual(values = c("missing data" = "solid", "false date 2000" = "solid", "data present" = "solid", "non-wear" = "solid")) +
+  theme_minimal() +
+  scale_x_datetime(breaks = date_breaks("1 month"), # Key change: Set breaks every month
+                 labels = date_format("%b %Y"))  # Optional: Format date labels
 ggsave("missing_data.png", bg = "white")
-# 
-# 
-# missing <- missing_data
-# missing$start_time <- as.POSIXct(missing$start_time, format="%d/%m/%Y %H:%M:%S")
-# missing$end_time <- as.POSIXct(missing$end_time, format="%d/%m/%Y %H:%M:%S")
-# missing <- missing %>%
-#   filter(complete.cases(.))
-# all_missing_months <- lapply(1:nrow(missing), function(i) {
-#   print(i)
-#   generate_missing_months(missing[i,])
-# })
-# 
-# # Combine all the missing months data
-# missing <- do.call(rbind, all_missing_months)
-# 
-# # Extract the month and year from start_time to group by month
-# missing$month <- month(missing$start_time)
-# 
-# # Calculate the number of missing data points per month
-# missing_data_monthly <- missing %>%
-#   mutate(present_flag = ifelse(missing_data == "data present", end_time - start_time, 0)) %>%
-#   mutate(inactivity_flag = ifelse(missing_data == "non-wear", end_time - start_time, 0)) %>%
-#   group_by(month, id) %>%
-#   summarise(
-#     data_present = sum(present_flag),
-#     non_wear = sum(inactivity_flag)
-#   )
-# 
-# df_long <- missing_data_monthly %>%
-#   pivot_longer(cols = c(data_present, non_wear),
-#                names_to = "missing_data", values_to = "value") %>%
-#   # Calculate the total for each month
-#   group_by(month, id) %>%
-#   mutate(total_entries = sum(value)) %>%
-#   ungroup() %>%
-#   # Calculate the percentage for each entry type
-#   mutate(percentage = (value / total_entries) * 100)
-# 
-# x11()
-# ggplot(df_long, aes(x = as.factor(month), y = percentage, fill = missing_data)) +
-#   geom_bar(stat = "identity") +
-#   geom_hline(yintercept = 50, linetype = "dashed", color = "black") +  # Add a dashed line at 50%
-#   facet_wrap(~ id) +  # Facet by ID
-#   labs(
-#     title = "Percentage of Missing and Non-Missing light data by Month and ID",
-#     x = "Month",
-#     y = "Percentage (%)"
-#   ) +
-#   scale_fill_manual(
-#     values = c("data_present" = "#81C784", "non_wear" = "#E57373"),  # Shades of red and green
-#     labels = c("data_present" = "wear", "non_wear" = "non-wear")) +
-#   theme(
-#     strip.text = element_text(face = "bold"),
-#     axis.text.x = element_text(angle = 0, hjust = 0.5)
-#   )
-# ggsave("percetage_plot.png", bg = "white")
+
+
+
+
+generate_missing_months <- function(missing) {
+  # Generate a sequence of months between start_date and end_date
+  start_date <- missing$start_time
+  end_date <- missing$end_time
+  months_in_range <- seq.POSIXt(start_date, end_date, by = "month")
+  missing_months <- c()
+  if(length(months_in_range) <= 1){
+    missing_months <- missing
+  }
+  else{
+    for(i in 1:(length(months_in_range) - 1))
+    {
+      temp <- missing
+      temp$start_time <- months_in_range[i]
+      temp$end_time <- months_in_range[i + 1]
+      missing_months <- rbind(missing_months, temp)
+    }
+  }
+  return(missing_months)
+}
+
+missing <- missing_data
+missing$start_time <- as.POSIXct(missing$start_time, format="%d/%m/%Y %H:%M:%S")
+missing$end_time <- as.POSIXct(missing$end_time, format="%d/%m/%Y %H:%M:%S")
+missing <- missing %>%
+  filter(complete.cases(.))
+all_missing_months <- lapply(1:nrow(missing), function(i) {
+  print(i)
+  generate_missing_months(missing[i,])
+})
+
+# Combine all the missing months data
+missing <- do.call(rbind, all_missing_months)
+
+# Extract the month and year from start_time to group by month
+missing$month <- month(missing$start_time)
+
+# Calculate the number of missing data points per month
+missing_data_monthly <- missing %>%
+  mutate(present_flag = ifelse(missing_data == "data present", end_time - start_time, 0)) %>%
+  mutate(inactivity_flag = ifelse(missing_data == "non-wear", end_time - start_time, 0)) %>%
+  group_by(month, id) %>%
+  summarise(
+    data_present = sum(present_flag),
+    non_wear = sum(inactivity_flag)
+  )
+
+df_long <- missing_data_monthly %>%
+  pivot_longer(cols = c(data_present, non_wear),
+               names_to = "missing_data", values_to = "value") %>%
+  # Calculate the total for each month
+  group_by(month, id) %>%
+  mutate(total_entries = sum(value)) %>%
+  ungroup() %>%
+  # Calculate the percentage for each entry type
+  mutate(percentage = (value / total_entries) * 100)
+
+x11()
+ggplot(df_long, aes(x = as.factor(month), y = percentage, fill = missing_data)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = 50, linetype = "dashed", color = "black") +  # Add a dashed line at 50%
+  facet_wrap(~ id) +  # Facet by ID
+  labs(
+    title = "Percentage of Missing and Non-Missing light data by Month and ID",
+    x = "Month",
+    y = "Percentage (%)"
+  ) +
+  scale_fill_manual(
+    values = c("data_present" = "#81C784", "non_wear" = "#E57373"),  # Shades of red and green
+    labels = c("data_present" = "wear", "non_wear" = "non-wear")) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5)
+  )
+ggsave("percetage_plot.png", bg = "white")
+
+
+
 
 
 present_data_filtered <- present_data[present_data$reason == "present",]
@@ -360,43 +391,43 @@ for(ID in unique_id)
       light_data_month <- light_data_month %>% rename(Datetime = DATE.TIME )
       light_data_month$Datetime <- dmy_hms(light_data_month$Datetime) 
       data_month = light_data_month %>%
-        dplyr::reframe(duration_above_threshold(MEDI, Datetime, threshold = 2, as.df = TRUE))
+        dplyr::reframe(duration_above_threshold(MEDI, Datetime, threshold = 5000, as.df = TRUE))
       
       freq_cross_month = light_data_month %>%
-        dplyr::reframe(frequency_crossing_threshold(MEDI, threshold = 2, as.df = TRUE))
+        dplyr::reframe(frequency_crossing_threshold(MEDI, threshold = 5000, as.df = TRUE))
       
       interdaily_var_month = light_data_month %>%
         dplyr::reframe(intradaily_variability(MEDI, Datetime, as.df = TRUE))
       
       per_above_thr_month = light_data_month %>%
-        dplyr::reframe(period_above_threshold(MEDI, Datetime, "above", threshold = 2))
+        dplyr::reframe(period_above_threshold(MEDI, Datetime, "above", threshold = 5000))
       
       pulse_above_thr_month = light_data_month %>%
-        dplyr::reframe(pulses_above_threshold(MEDI, Datetime, threshold = 2, as.df = TRUE))
+        dplyr::reframe(pulses_above_threshold(MEDI, Datetime, threshold = 5000, as.df = TRUE))
       
       data_disparity_idex_month = light_data_month %>%
         dplyr::reframe(disparity_index(MEDI))
       
       time_abv_thr_month = light_data_month %>%
-        dplyr::reframe(timing_above_threshold(MEDI, Datetime, "above", 2, as.df = TRUE))
+        dplyr::reframe(timing_above_threshold(MEDI, Datetime, "above", 5000, as.df = TRUE))
       
       cortisol_value <- as.numeric(tail(data_month_id$Cortisol..ng.mL.,4))
       auc <- calculate_auc(cortisol_value)
       
-      new_row <- list(c(ID, date,as.numeric(data_month_id$Melatonin..pg.mL.), cortisol_value, 
+      new_row <- list(c(cortisol_value, 
                         auc,
-                        data_month$duration_above_2,
-                        freq_cross_month$frequency_crossing_2,
+                        data_month$duration_above_5000,
+                        freq_cross_month$frequency_crossing_5000,
                         interdaily_var_month$intradaily_variability,
-                        per_above_thr_month$`period_above_threshold(MEDI, Datetime, "above", threshold = 2)`,
-                        pulse_above_thr_month$n_pulses_above_2,
-                        pulse_above_thr_month$mean_level_pulses_above_2,
-                        pulse_above_thr_month$mean_duration_pulses_above_2,
-                        pulse_above_thr_month$total_duration_pulses_above_2,
+                        per_above_thr_month$`period_above_threshold(MEDI, Datetime, "above", threshold = 5000)`,
+                        pulse_above_thr_month$n_pulses_above_5000,
+                        pulse_above_thr_month$mean_level_pulses_above_5000,
+                        pulse_above_thr_month$mean_duration_pulses_above_5000,
+                        pulse_above_thr_month$total_duration_pulses_above_5000,
                         data_disparity_idex_month$`disparity_index(MEDI)`,
-                        time_abv_thr_month$mean_timing_above_2,
-                        time_abv_thr_month$first_timing_above_2,
-                        time_abv_thr_month$last_timing_above_2))
+                        time_abv_thr_month$mean_timing_above_5000,
+                        time_abv_thr_month$first_timing_above_5000,
+                        time_abv_thr_month$last_timing_above_5000))
       temp_df <- c()
       temp_df <- data.frame(do.call(rbind, new_row))
       df_correlation <- bind_rows(df_correlation, temp_df)
@@ -404,7 +435,7 @@ for(ID in unique_id)
     }
   }
 }
-colnames(df_correlation) <- c("ID", "date", append(data_month_id$Timestamp, c("morning_melatonin1", "morning_melatonin2", "morning_melatonin3", "morning_melatonin4") ,after = 11), "AUC",
+colnames(df_correlation) <- c("m1","m2","m3","m4", "AUC",
                               "dur_abv_thr","freq", "IV", "per_above_250", "pulse_above_250", "pulse_above_250_mean_level", "pulse_above_250_mean_duration", "pulse_above_250_total_duration",
                               "disparity_index", "mean_time_above_250", "first_timing_above_250", "last_timing_above_250")
 df_correlation[df_correlation == "sample not received"] <- NA
@@ -422,7 +453,6 @@ corrplot(cor_matrix, method = "color")
 ggsave("correlation_plot.png", bg = "white")
 
 
-library(reshape2)
 
 df_long <- melt(na.omit(df_correlation[,18:21]), variable.name = "variable", value.name = "value")
 
