@@ -11,6 +11,7 @@ library(ggplot2)
 library(tidyr)
 library(corrplot)
 library(reshape2)
+library(scales)
 
 
 
@@ -236,10 +237,10 @@ generate_missing_months <- function(missing) {
   return(missing_months)
 }
 
-path <- "F:/all_files_2025/"
+path <- "D:/all_files_2025/"
 files <- list.files(path, full.names = TRUE)
 fileName_date <- get_fileName_Date(files)
-unique_id <- 112#sort(unique(fileName_date$id))
+unique_id <- sort(unique(fileName_date$id))
 
 missing_data <- c()
 inactive_data <- c()
@@ -250,6 +251,8 @@ for(id in unique_id)
   data <- get_Data(fileName_date[fileName_date$id == id,])
   data$id <- id
   missing <- find_missing_time(data, id)
+  colnames(missing$data) <- colnames(present_data)
+  colnames(missing$missing_time) <- colnames(missing_data)
   missing_data <- rbind(missing_data, missing$missing_time)
   present_data <- rbind(present_data, missing$data)
   #present_data <- rbind(present_data, missing$data[missing$data$reason == "present",] )
@@ -265,9 +268,17 @@ ggplot(na.omit(missing_data)) + geom_segment(aes(x=dmy_hms(start_time), y=id, xe
   scale_color_manual(values = c("missing data" = "#E57373", "false date 2000" = "#f7d6d6", "data present" = "#81C784", "non-wear" = "#eef7ee"))+
   scale_size_manual(values = c("missing data" = 2.5, "false date 2000" = 2.5, "data present" = 3.5, "non-wear" = 2.5)) +  # Customize line width
   scale_linetype_manual(values = c("missing data" = "solid", "false date 2000" = "solid", "data present" = "solid", "non-wear" = "solid")) +
+  xlab("Month")+
+  ylab("Participant Id")+
+  scale_x_datetime(breaks = date_breaks("1 month"),
+                 labels = date_format("%b %Y"))+
   theme_minimal() +
-  scale_x_datetime(breaks = date_breaks("1 month"), # Key change: Set breaks every month
-                 labels = date_format("%b %Y"))  # Optional: Format date labels
+  ggtitle("Analysis of missing data per participant")+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(face = "bold", margin = margin(t=10)),  # Make x-axis label bold
+        axis.title.y = element_text(face = "bold", margin = margin(r=10)),
+        panel.grid.minor.x = element_blank(),
+        )
 ggsave("missing_data.png", bg = "white")
 
 
@@ -308,8 +319,64 @@ all_missing_months <- lapply(1:nrow(missing), function(i) {
 missing <- do.call(rbind, all_missing_months)
 
 # Extract the month and year from start_time to group by month
-missing$month <- month(missing$start_time)
+#missing$month <- month(missing$start_time)
+missing$month <- format(missing$start_time, "%Y-%m")
 
+
+
+
+########################## Percentage Plot all ######################################################
+# Calculate the number of missing data points per month
+missing_data_monthly <- missing %>%
+  mutate(present_flag = ifelse(missing_data == "data present", end_time - start_time, 0)) %>%
+  mutate(inactivity_flag = ifelse(missing_data == "non-wear", end_time - start_time, 0)) %>%
+  mutate(falseDate_flag = ifelse(missing_data == "false date 2000", end_time - start_time, 0)) %>%
+  mutate(missingData_flag = ifelse(missing_data == "missing data", end_time - start_time, 0)) %>%
+  group_by(month, id) %>%
+  summarise(
+    data_present = sum(present_flag),
+    non_wear = sum(inactivity_flag),
+    false_date = sum(falseDate_flag),
+    missing_data = sum(missingData_flag),
+  )
+
+df_long <- missing_data_monthly %>%
+  pivot_longer(cols = c(data_present, non_wear, false_date, missing_data),
+               names_to = "missing_data", values_to = "value") %>%
+  # Calculate the total for each month
+  group_by(month, id) %>%
+  mutate(total_entries = sum(value)) %>%
+  ungroup() %>%
+  # Calculate the percentage for each entry type
+  mutate(percentage = (value / total_entries) * 100)
+
+x11()
+ggplot(df_long, aes(x = as.factor(month), y = percentage, fill = missing_data)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = 50, linetype = "dashed", color = "black") +  # Add a dashed line at 50%
+  facet_wrap(~ id) +  # Facet by ID
+  labs(
+    title = "Percentage of Light Data Type by Month and ID",
+    x = "Month",
+    y = "Percentage (%)"
+  ) +
+  scale_fill_manual(
+    name = "Type of Light Data",
+    values = c("data_present" = "#81C784", "non_wear" = "#eef7ee", "false_date" = "#f7d6d6", "missing_data" = "#E57373"),  # Shades of red and green
+    labels = c("data_present" = "Wear", "non_wear" = "Non-Wear", "false_date" = "False Date", "missing_data" = "Missing Data")) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", margin = margin(b = 20)),
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 90, hjust = 0.5),
+    axis.title.x = element_text(face = "bold", margin = margin(t=10)), 
+    axis.title.y = element_text(face = "bold", margin = margin(r=10))
+  )
+ggsave("percetage_plot_all.png", bg = "white")
+
+
+
+
+########################### Percentage plot wear/ non-wear #########################################################
 # Calculate the number of missing data points per month
 missing_data_monthly <- missing %>%
   mutate(present_flag = ifelse(missing_data == "data present", end_time - start_time, 0)) %>%
@@ -336,131 +403,21 @@ ggplot(df_long, aes(x = as.factor(month), y = percentage, fill = missing_data)) 
   geom_hline(yintercept = 50, linetype = "dashed", color = "black") +  # Add a dashed line at 50%
   facet_wrap(~ id) +  # Facet by ID
   labs(
-    title = "Percentage of Missing and Non-Missing light data by Month and ID",
+    title = "Percentage of Wear and Non-Wear Duration of Light Logger Device by Month and ID",
     x = "Month",
     y = "Percentage (%)"
   ) +
   scale_fill_manual(
+    name = "Type of Light Data",
     values = c("data_present" = "#81C784", "non_wear" = "#E57373"),  # Shades of red and green
-    labels = c("data_present" = "wear", "non_wear" = "non-wear")) +
+    labels = c("data_present" = "Wear", "non_wear" = "Non-Wear")) +
   theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", margin = margin(b = 20)),
     strip.text = element_text(face = "bold"),
-    axis.text.x = element_text(angle = 0, hjust = 0.5)
+    axis.text.x = element_text(angle = 90, hjust = 0.5),
+    axis.title.x = element_text(face = "bold", margin = margin(t=10)), 
+    axis.title.y = element_text(face = "bold", margin = margin(r=10))
   )
 ggsave("percetage_plot.png", bg = "white")
+######################################################################################################################
 
-
-
-
-
-present_data_filtered <- present_data[present_data$reason == "present",]
-
-file_cortisol <- "TUM_EcoSleep_Results_MEL&CORT_240921.csv"
-data_cortisol <- read.csv(file_cortisol, sep = ',')
-
-calculate_auc <- function(cortisol) {
-  auc <- 0
-  for (i in 1:(length(cortisol) - 1)) {
-    auc <- auc + (0.5 * (cortisol[i] + cortisol[i + 1]) * (30))
-  }
-  return(auc)
-}
-
-unique_id <- sort(unique(data_cortisol$Participant.ID))
-df_correlation <- c()
-for(ID in unique_id)
-{
-  data_cortisol_id <- data_cortisol %>% filter(Participant.ID == ID)
-  unique_month <- sort(unique(data_cortisol_id$Month.1))
-  melatonin_date <- unique(data_cortisol_id[data_cortisol_id$Timestamp == "e1",]$Date)
-  for(unique_date in melatonin_date)
-  {
-    date <- dmy(unique_date)
-    data_month_id <- data_cortisol_id %>% filter(dmy(Date) == date | dmy(Date) == date + days(1))
-    target_date <- date
-   # start_time <- ymd_hms(paste(target_date - days(1), "08:00:00"))
-    start_time <- ymd_hms(paste(target_date, "08:00:00"))
-    end_time <- ymd_hms(paste(target_date, "23:00:00"))
-    
-    light_data_month <- present_data_filtered[dmy_hms(present_data_filtered$DATE.TIME) > start_time &
-                                     dmy_hms(present_data_filtered$DATE.TIME) < end_time,]
-    # light_data_month <- present_data %>% filter(as.Date(dmy_hms(DATE.TIME)) == dmy(data_month_id[data_month_id$Timestamp == "e1",]$Date)
-    #                                             & id == ID)
-    if (nrow(light_data_month) > 0) {
-      light_data_month <- light_data_month %>% rename(MEDI = MELANOPIC.EDI)
-      light_data_month <- light_data_month %>% rename(Datetime = DATE.TIME )
-      light_data_month$Datetime <- dmy_hms(light_data_month$Datetime) 
-      data_month = light_data_month %>%
-        dplyr::reframe(duration_above_threshold(MEDI, Datetime, threshold = 5000, as.df = TRUE))
-      
-      freq_cross_month = light_data_month %>%
-        dplyr::reframe(frequency_crossing_threshold(MEDI, threshold = 5000, as.df = TRUE))
-      
-      interdaily_var_month = light_data_month %>%
-        dplyr::reframe(intradaily_variability(MEDI, Datetime, as.df = TRUE))
-      
-      per_above_thr_month = light_data_month %>%
-        dplyr::reframe(period_above_threshold(MEDI, Datetime, "above", threshold = 5000))
-      
-      pulse_above_thr_month = light_data_month %>%
-        dplyr::reframe(pulses_above_threshold(MEDI, Datetime, threshold = 5000, as.df = TRUE))
-      
-      data_disparity_idex_month = light_data_month %>%
-        dplyr::reframe(disparity_index(MEDI))
-      
-      time_abv_thr_month = light_data_month %>%
-        dplyr::reframe(timing_above_threshold(MEDI, Datetime, "above", 5000, as.df = TRUE))
-      
-      cortisol_value <- as.numeric(tail(data_month_id$Cortisol..ng.mL.,4))
-      auc <- calculate_auc(cortisol_value)
-      
-      new_row <- list(c(cortisol_value, 
-                        auc,
-                        data_month$duration_above_5000,
-                        freq_cross_month$frequency_crossing_5000,
-                        interdaily_var_month$intradaily_variability,
-                        per_above_thr_month$`period_above_threshold(MEDI, Datetime, "above", threshold = 5000)`,
-                        pulse_above_thr_month$n_pulses_above_5000,
-                        pulse_above_thr_month$mean_level_pulses_above_5000,
-                        pulse_above_thr_month$mean_duration_pulses_above_5000,
-                        pulse_above_thr_month$total_duration_pulses_above_5000,
-                        data_disparity_idex_month$`disparity_index(MEDI)`,
-                        time_abv_thr_month$mean_timing_above_5000,
-                        time_abv_thr_month$first_timing_above_5000,
-                        time_abv_thr_month$last_timing_above_5000))
-      temp_df <- c()
-      temp_df <- data.frame(do.call(rbind, new_row))
-      df_correlation <- bind_rows(df_correlation, temp_df)
-      
-    }
-  }
-}
-colnames(df_correlation) <- c("m1","m2","m3","m4", "AUC",
-                              "dur_abv_thr","freq", "IV", "per_above_250", "pulse_above_250", "pulse_above_250_mean_level", "pulse_above_250_mean_duration", "pulse_above_250_total_duration",
-                              "disparity_index", "mean_time_above_250", "first_timing_above_250", "last_timing_above_250")
-df_correlation[df_correlation == "sample not received"] <- NA
-df_correlation[df_correlation == "Sample not received"] <- NA
-df_correlation[df_correlation == "etremly low volume (<50µL)"] <- NA
-df_correlation[df_correlation == "empty"] <- NA
-df_correlation[df_correlation == ">1000"] <- NA
-
-df_correlation <- as.data.frame(lapply(df_correlation, type.convert, as.is = TRUE))
-#df_correlation <- na.omit(df_correlation)
-cor_matrix <- cor(na.omit(df_correlation))
-
-x11()
-corrplot(cor_matrix, method = "color")
-ggsave("correlation_plot.png", bg = "white")
-
-
-
-df_long <- melt(na.omit(df_correlation[,18:21]), variable.name = "variable", value.name = "value")
-
-# Create the box plot with superimposed line plot
-ggplot(df_long, aes(x = variable, y = value)) +
-  geom_boxplot(fill = "lightblue", alpha = 0.6, outlier.shape = NA) +  # Box plot
-  stat_summary(fun = mean, geom = "line", aes(group = 1), color = "red", size = 1) +  # Line plot for means
-  stat_summary(fun = mean, geom = "point", color = "red", size = 3) +  # Points for means
-  labs(title = "Box Plot with Mean Line", x = "Variable", y = "Value") +
-  theme_minimal()
-ggsave("box_plot.png", bg = "white")

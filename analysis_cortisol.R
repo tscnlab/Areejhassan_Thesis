@@ -12,9 +12,10 @@ library(tidyr)
 library(corrplot)
 library(purrr)
 library(gridExtra)
-library(dlmoR)
+#library(dlmoR)
+library(readxl)
 
-path <- "F:/all_files/"
+path <- "D:/all_files_2025/"
 files <- list.files(path, full.names = TRUE)
 #show how many files are listes
 length(files)
@@ -63,9 +64,9 @@ for(id in unique_id)
 }
 
 present_data_filtered <- present_data[present_data$reason == "present",]
-file_cortisol <- "TUM_EcoSleep_Results_MEL&CORT_ saliva samples_excel.csv"
-data_cortisol <- read.csv(file_cortisol, sep = ';')
-
+file_cortisol <- "output_updated_data_v3.xlsx"
+#data_cortisol <- read.csv(file_cortisol, sep = ';')
+data_cortisol <- read_excel(file_cortisol)
 calculate_auc <- function(cortisol) {
   auc <- 0
   for (i in 1:(length(cortisol) - 1)) {
@@ -86,6 +87,8 @@ cor_nested <- function(dataset,
   #   in the dataset.
   #print(cor.variable.2)
   #grouping and normalizing the variables
+  dataset[[cor.variable.1]] <- as.numeric(dataset[[cor.variable.1]])
+  dataset[[cor.variable.2]] <- as.numeric(dataset[[cor.variable.2]])
   dataset <- 
     dataset |> 
     group_by(.data[[nesting.variable]], .add = TRUE) |> 
@@ -105,14 +108,14 @@ cor_nested <- function(dataset,
 }
 
 
-unique_id <- sort(unique(data_cortisol$Participant.ID))
+unique_id <- sort(unique(data_cortisol$ID))
 df_correlation <- c()
 light_threshold <- seq(from = log(10), to = log(250), length.out = 20)
 time_duration <- seq(from = 0, to = 19, length.out = 20)
 # Initialize an empty dataframe to store correlations
 correlation_df <- data.frame()
 pValue_df <- data.frame()
-threshold <- 7
+#threshold <- 7
 # for (day in time_duration) {
 #   # Initialize a temporary dataframe to store AUC and light metrics for this threshold
 #   temp_df <- data.frame()
@@ -262,21 +265,44 @@ for (threshold in light_threshold) {
   # Initialize a temporary dataframe to store AUC and light metrics for this threshold
   temp_df <- data.frame()
 
-  for (ID in unique_id) {
-    data_cortisol_id <- data_cortisol %>% filter(Participant.ID == ID)
-    cortisol_date <- unique(data_cortisol_id[data_cortisol_id$Timestamp == "e1",]$Date)
+  for (participant_ID in unique_id) {
+    print(participant_ID)
+    data_cortisol_id <- data_cortisol %>% filter(ID == participant_ID)
+    data_cortisol_id$date <- as.character(data_cortisol_id$date)
+    cortisol_date <- na.omit(unique(data_cortisol_id[data_cortisol_id$instance == "m1",]$date))
     for (unique_date in cortisol_date) {
-      date <- dmy(unique_date)
-      data_month_id <- data_cortisol_id %>% filter(dmy(Date) == date | dmy(Date) == date + days(1))
-      start_time <- dmy_hms(paste(unique_date, "00:00:00"), tz = tz)
-      end_time <- dmy_hms(paste(unique_date, "23:59:00"), tz = tz)
+      unique_date <- ymd(unique_date, tz = "Europe/Berlin")
+      print(unique_date)
+      #date_unique <- ymd(unique_date)
+      data_month_id <- data_cortisol_id %>% filter(ymd(date, tz = "Europe/Berlin") == unique_date)
+      #start_time <- dmy_hms(paste(unique_date, "00:00:00"), tz = tz)
+      #end_time <- dmy_hms(paste(unique_date, "23:59:00"), tz = tz)
+      cortisol_day <- data_month_id[data_month_id$instance == "m1",]$date
+      extracted_time_start <- data_month_id[data_month_id$instance == "m1",]$time_final
+      if (is.na(extracted_time_start)) {
+        extracted_time_start <- "08:00:00"
+      }
+      extracted_time_end <- data_month_id[data_month_id$instance == "m4",]$time_final
+      if (is.na(extracted_time_end)) {
+        extracted_time_end <- "10:00:00"
+      }
       
-      #start_time <- dmy_hms(paste(unique_date, "06:00:00")) + days(1)
-      #end_time <- dmy_hms(paste(unique_date, "09:00:00")) + days(1)
+      start_cortisol_time <- ymd_hms(paste(cortisol_day, extracted_time_start), tz = "Europe/Berlin")
+      end_cortisol_time <- ymd_hms(paste(cortisol_day, extracted_time_end), tz = "Europe/Berlin")
+      if (is.na(start_cortisol_time)) {
+        start_cortisol_time <- ymd_hms(paste(cortisol_day, "08:00:00"), tz = "Europe/Berlin")
+      }
+      if (is.na(end_cortisol_time)) {
+        end_cortisol_time <- ymd_hms(paste(cortisol_day, "10:00:00"), tz = "Europe/Berlin")
+      }
+      
+      
+      start_time <- start_cortisol_time - hours(2)
+      end_time <- end_cortisol_time
 
       light_data_month <- present_data_filtered[present_data_filtered$Datetime > start_time &
                                                   present_data_filtered$Datetime < end_time &
-                                                  present_data_filtered$Id == ID,]
+                                                  present_data_filtered$Id == participant_ID,]
       
       
       if (nrow(light_data_month) > 1) {
@@ -313,12 +339,12 @@ for (threshold in light_threshold) {
           dplyr::reframe(timing_above_threshold(MEDI, Datetime, "above", exp(threshold), as.df = TRUE))
 
         # Calculate cortisol AUC
-        cortisol_value <- as.numeric(tail(data_month_id$Cortisol..ng.mL., 4))
+        cortisol_value <- as.numeric(tail(data_month_id$`cortisol (ng/mL)`, 4))
         auc <- calculate_auc(cortisol_value)
 
         # Store the metrics and AUC in a temporary dataframe
         new_row <- list(c(
-          ID,
+          participant_ID,
           auc,
           as.numeric(data_month[2]),
           as.numeric(freq_cross_month[2]),
@@ -407,7 +433,6 @@ plots <- correlation_long %>%
             axis.text.x = element_text(angle = 90, hjust = 1))+
       scale_x_continuous(
         trans = "log", # Keep the scale in log,
-        breaks = log(c(10, 50, 100, 500, 1000, 2000 ,5000)),
         labels = function(x) format(round(exp(x)), scientific = FALSE)
       ) +
       scale_y_continuous(limits = c(-1, 1))
@@ -420,8 +445,8 @@ n_rows <- ceiling(length(plots) / n_cols)
 grid.arrange(grobs = plots, ncol = n_cols, nrow = n_rows)
 
 plot_grid <- arrangeGrob(grobs = plots, ncol = n_cols, nrow = n_rows)
-ggsave("corrPlotvsLightThresh.png", plot_grid, width = 15, height = 10, units = "in")
-ggsave("corrPlotvsLightThresh.png", bg = "white")
+ggsave("results_15_04/corrPlotvsLightThresh_250.png", plot_grid, width = 15, height = 10, units = "in")
+ggsave("corrPlotvsLightThresh_2025.png", bg = "white")
 
 # file_melatonin <- "TUM_EcoSleep_Results_MEL&CORT.csv"
 # filename <- system.file(file_melatonin, package = "dlmoR")
